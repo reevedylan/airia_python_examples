@@ -85,20 +85,6 @@ aws_secret_key =
   "0/9BZhvWaXH6K2/tyLBhhOhg9uhkxiiEZpFfk1OH"
 ```
 
-**`gcp_service_account_key`** — confidence **0.90**
-Matches `"type": "service_account"` appearing near a `"private_key"` field. The `"type"` marker
-is required context for a match, but only the `"private_key"` value itself is captured and redacted —
-not the surrounding JSON structure.
-Why: two semantically specific JSON fields co-occurring is very unlikely outside a real service-account key;
-narrowing the redaction to just the key value avoids over-redacting non-sensitive structural JSON around it.
-```
-{"type": "service_account", "project_id": "<project-id>", "private_key_id": "<key-id>", "private_key": "-----BEGIN PRIVATE KEY-----\n<base64-encoded key data>\n-----END PRIVATE KEY-----\n", "client_email": "<name>@<project-id>.iam.gserviceaccount.com"}
-```
-Demo trigger (synthetic, non-functional):
-```
-{"type": "service_account", "project_id": "demo-project-123", "private_key_id": "abc123", "private_key": "-----BEGIN PRIVATE KEY-----\nMIIExampleFakeKeyData==\n-----END PRIVATE KEY-----\n", "client_email": "demo@demo-project-123.iam.gserviceaccount.com"}
-```
-
 ## Source control & package registries
 
 **`github_pat_classic`** — confidence **0.95**

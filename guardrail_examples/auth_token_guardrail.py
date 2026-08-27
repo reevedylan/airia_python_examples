@@ -102,17 +102,6 @@ TOKEN_PATTERNS = [
         confidence=0.6,
         group="secret",
     ),
-    dict(
-        name="gcp_service_account_key",
-        message="GCP service account JSON key: '\"type\": \"service_account\"' near a '\"private_key\"' field",
-        regex=re.compile(
-            r"\"type\"\s*:\s*\"service_account\""
-            r"[\s\S]{0,500}?"
-            r"\"private_key\"\s*:\s*\"(?P<secret>[^\"]{20,})\""
-        ),
-        confidence=0.9,
-        group="secret",
-    ),
     # --- Source control / package registries -----------------------------------
     dict(
         name="github_pat_classic",
@@ -248,11 +237,10 @@ def _scan_text(text: str, message_index: int) -> list:
     for pattern in TOKEN_PATTERNS:
         group = pattern.get("group", 0)
         for match in pattern["regex"].finditer(text):
-            full_start, full_end = match.span(0)
             redact_start, redact_end = match.span(group)
-            if redact_start == -1 or _span_overlaps(full_start, full_end, claimed_spans):
+            if redact_start == -1 or _span_overlaps(redact_start, redact_end, claimed_spans):
                 continue
-            claimed_spans.append((full_start, full_end))
+            claimed_spans.append((redact_start, redact_end))
             violations.append({
                 "content_type": "text",
                 "value": text[redact_start:redact_end],
