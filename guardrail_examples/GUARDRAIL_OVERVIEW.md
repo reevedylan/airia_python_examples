@@ -25,19 +25,22 @@ sk-ant-api03-odJFCrnl2edlBDdz1C5Jau2RJtBRnlWmTSHf6pWkLUyifDLkDmWJ6UuVTAIjvFu7WIC
 ```
 
 **`openai_api_key_project`** — confidence **0.90**
-Matches `sk-proj-` + 20 or more base64url chars.
+Matches `sk-proj-` + 20 or more base64url chars. Real project keys have grown from ~48 chars to
+~130+ chars with no vendor announcement; the regex's open floor still matches them without
+a false negative, so it's left as-is (a precision-only gap, not a recall gap).
 Why: distinctive prefix, but the open-ended length leaves a little room for coincidence.
 ```
-sk-proj-<20+ base64url characters>
+sk-proj-<130+ base64url characters>
 ```
 Demo trigger (synthetic, non-functional):
 ```
 sk-proj-gotu2iXW7GboIRoL3u6aHwnMztVuaP_coUNEhEkk
 ```
 
-**`openai_api_key_legacy`** — confidence **0.65**
+**`openai_api_key_legacy`** — confidence **0.90**
 Matches `sk-` + exactly 48 alphanumeric chars.
-Why: `sk-` alone is a short, generic prefix shared by other schemes — including well beyond OpenAI — so confidence is kept low even with the fixed length.
+Why: fixed `sk-` prefix + exact 48-char length is a distinctive, low-collision shape; the format
+is confirmed correct and stable, so confidence was raised from an earlier, overly-cautious 0.65.
 ```
 sk-<48 alphanumeric characters>
 ```
@@ -57,13 +60,33 @@ Demo trigger (synthetic, non-functional):
 AIzaajhDieQjEJ_Bq8F80ymm3T207gmhZRnFyy5
 ```
 
+**`google_api_key_auth`** — confidence **0.5 (provisional)**
+Matches Google's new `AQ.`-prefixed "Auth key" format: `AQ.` + 20 or more base64url/dot chars.
+Why: Google is actively migrating Gemini/AI Studio to this format — unrestricted Standard (`AIza`)
+keys are already rejected there, and all Standard-key requests get rejected starting September 2026.
+Google hasn't published an exact length/charset for the new format yet, so this pattern is
+intentionally loose and should be revisited once they do.
+```
+AQ.<20+ base64url/dot characters>
+```
+Demo trigger (synthetic, non-functional):
+```
+AQ.Ab8RN6L3xW9pQeYh2sKdL9mFPz3Tn5xR8vQeYh2sKdL9
+```
+
 ## Cloud providers
 
 **`aws_access_key_id`** — confidence **0.95**
-Matches a known AWS prefix (`AKIA`, `ASIA`, `AROA`, `AIDA`, etc.) + 16 uppercase alphanumeric chars.
+Matches `AKIA`/`ASIA`/`A3T...` + 16 uppercase alphanumeric chars (actual access key IDs), or one
+of AWS's other documented identifier prefixes (`ABIA`, `ACCA`, `AGPA`, `AIDA`, `AIPA`, `ANPA`,
+`ANVA`, `APKA`, `AROA`, `ASCA`) + 17 uppercase alphanumeric chars. AWS's IAM docs show these
+non-access-key identifiers are 17 chars after the prefix, not 16 — the old single 16-char rule
+meant 6 of the 9 covered prefixes could structurally never match, and 4 currently-documented
+prefixes (`ABIA`, `ACCA`, `APKA`, `ASCA`) were missing entirely.
 Why: enumerated, AWS-owned key-type prefixes plus fixed length give low collision risk.
 ```
 AKIA<16 uppercase alphanumeric characters>
+AROA<17 uppercase alphanumeric characters>
 ```
 Demo trigger (synthetic, non-functional):
 ```
@@ -110,21 +133,39 @@ github_pat_kC1ITtN_ZPHaQ0Jt7Qg84iqh4gVJjrsMnTvnRO2qGFq562dfOB1rcavXiO_qkVCJTBJah
 ```
 
 **`github_oauth_app_token`** — confidence **0.90**
-Matches `gho_`/`ghu_`/`ghs_`/`ghr_` + 36–255 alphanumeric chars.
+Matches `gho_`/`ghu_`/`ghr_` + 36–255 alphanumeric chars. `ghs_` (App installation) tokens were
+split out into their own pattern below, since GitHub moved them to a different format in 2026.
 Why: unique prefixes, but the wide length range is looser than GitHub's fixed-length formats.
 ```
-ghs_<36-255 alphanumeric characters>
+gho_<36-255 alphanumeric characters>
 ```
 Demo trigger (synthetic, non-functional):
 ```
-ghs_Bictx57Y3c5wnRpQgwXJ43ANVj77p3kZZl4A
+ghu_Bictx57Y3c5wnRpQgwXJ43ANVj77p3kZZl4A
+```
+
+**`github_app_installation_token`** — confidence **0.75**
+Matches `ghs_` + 36–600 alphanumeric/dot/underscore/hyphen chars.
+Why: GitHub's April 2026 changelog confirms `ghs_` (App installation) tokens moved to a stateless
+JWT format (`ghs_APPID_JWT`, ~520 chars, contains literal dots) — rollout completed by late June
+2026, putting current tokens outside the old fixed-alphanumeric charset/length. The new shape is
+looser and less distinctive than the old one, so confidence is lower.
+```
+ghs_<36-600 alphanumeric/dot/underscore/hyphen characters>
+```
+Demo trigger (synthetic, non-functional):
+```
+ghs_12345.eyJhbGciOiJSUzI1NiJ9.fake-jwt-body-segment-for-demo-purposes-only
 ```
 
 **`gitlab_pat`** — confidence **0.95**
-Matches `glpat-` + 20 alphanumeric/underscore/hyphen chars.
-Why: unique prefix plus fixed length.
+Matches either the legacy fixed-length token (`glpat-` + 20 alphanumeric/underscore/hyphen chars)
+or GitLab's newer "routable token" format (`glpat-` + 27-300 char base64url payload + `.` +
+2-char version + 7-char CRC32 suffix), rolled out roughly two years ago.
+Why: unique prefix, and both the legacy and current fixed-shape suffixes are distinctive.
 ```
 glpat-<20 alphanumeric/underscore/hyphen characters>
+glpat-<27-300 char payload>.<2-char version><7-char CRC32>
 ```
 Demo trigger (synthetic, non-functional):
 ```
@@ -166,11 +207,11 @@ dckr_pat_yX-ZFsan2Cw7gFp6r7O425u85HF
 
 ## Generic / structural formats
 
-**`jwt`** — confidence **0.60**
+**`jwt`** — confidence **0.85**
 Matches three base64url segments (20+ chars each) separated by `.`, header starting with `eyJ`.
-Why: `eyJ` is just the base64 encoding of `{"`, so any base64-encoded JSON can start this way; requiring 20+ chars per segment
-filters out short coincidental matches, but the pattern still isn't unique to real JWTs (blog posts, docs, and non-secret
-identity tokens all fit the shape), hence the low confidence.
+Why: requiring the fixed `eyJ` prefix on *both* the header and payload segments, plus a
+length-gated three-segment structure, is unusually distinctive as generic patterns go —
+confidence was raised from an earlier, overly-cautious 0.60.
 ```
 <base64url header starting with eyJ, 20+ chars>.<base64url payload, 20+ chars>.<base64url signature, 20+ chars>
 ```
@@ -179,9 +220,11 @@ Demo trigger (synthetic, non-functional):
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkRlbW8gVXNlciJ9.J_EJ4jKEIQOkrtDXtBi10Q71hA1XcW9aTMX1C_CI3_d
 ```
 
-**`bearer_auth_header`** — confidence **0.80**
+**`bearer_auth_header`** — confidence **0.40**
 Matches an HTTP `Authorization: Bearer <token>` header value (20+ chars).
-Why: keyword-anchored, but the token itself is just a generic long string with no unique shape of its own.
+Why: this is the generic RFC 6750 wire format with no entropy or uniqueness requirement on the
+token itself — it fires readily on placeholder tokens, doc examples, and test fixtures, so
+confidence was cut from an earlier, overly-generous 0.80.
 ```
 Authorization: Bearer <20+ character token>
 ```
@@ -191,7 +234,10 @@ Authorization: Bearer XRZv7qdYdk2r7xgHWPB6PRWJ1Gk8cgSC
 ```
 
 **`basic_auth_in_url`** — confidence **0.85**
-Matches credentials embedded directly in a URL: `scheme://user:password@host`.
+Matches credentials embedded directly in a URL: `scheme://user:password@host`. The scheme length
+cap was widened from 3–10 to 2–21 total chars, since the old cap rejected `mongodb+srv://`
+(11 chars) — a very common MongoDB Atlas connection-string leak shape — and excluded short
+schemes like `s3://`/`ws://`.
 Why: a clear structural pattern — credentials sitting directly in a URL — with low ambiguity.
 ```
 <scheme>://<user>:<password>@<host>:<port>/<path>
@@ -202,9 +248,11 @@ https://demo_user:SuperSecretPass123@internal-db.example.com:5432/prod
 ```
 
 **`pem_private_key`** — confidence **0.99**
-Matches a PEM-encoded private key block: `-----BEGIN [TYPE ]PRIVATE KEY-----`, requiring a
-single space before `PRIVATE KEY` (and after an optional type like `RSA`/`EC`/`DSA`/`OPENSSH`/`PGP`)
-so malformed headers like `-----BEGINPRIVATE KEY-----` don't match.
+Matches a PEM-encoded private key block: `-----BEGIN [TYPE ]PRIVATE KEY-----` for
+`RSA`/`EC`/`DSA`/`OPENSSH`/`ENCRYPTED` types, or `-----BEGIN PGP PRIVATE KEY BLOCK-----`.
+Two branches were fixed: `ENCRYPTED PRIVATE KEY` (PKCS#8, e.g. `openssl pkcs8 -topk8` output) was
+missing entirely, and the PGP branch required `PGP PRIVATE KEY-----` when the real OpenPGP armor
+header is `PGP PRIVATE KEY BLOCK-----` — that branch could never fire before.
 Why: exact, standardized header string — essentially no false-positive surface.
 ```
 -----BEGIN RSA PRIVATE KEY-----
@@ -221,7 +269,10 @@ MIIEpAIBAAKCAQEA1234ExampleFakeKeyMaterialDoNotUseabcdefghijk
 **`generic_labeled_token`** — confidence **0.50**
 Matches a variable literally named `api_key`/`api_token`/`access_token` assigned a 24+ char value
 (generated tokens/keys are almost always 24+ chars, so the bar is set there to cut
-placeholder/example noise without missing real ones).
+placeholder/example noise without missing real ones). Value-side quotes are now optional (with a
+trailing lookahead so the match doesn't over-consume into surrounding text), closing a gap where
+common unquoted `.env`/shell/YAML assignments (e.g. `API_KEY=sk_live_abc123...`) were missed
+entirely because quotes used to be mandatory.
 Why: still a keyword-only heuristic, but restricted to explicit API-key/token naming —
 bare `secret` and `token` were dropped because they fire on application-level config
 (Django's `SECRET_KEY`, `secret_message`, generic `token:` fields, etc.) that isn't a
@@ -264,28 +315,7 @@ Demo trigger (synthetic, non-functional):
 X-Api-Key: Rb1_n3U6t3w+I973IPFlJ5F7
 ```
 
-## Kubernetes
-
-**`kubeconfig_client_key_data`** — confidence **0.85**
-Matches a kubeconfig `client-key-data` field: a base64-encoded client private key.
-Why: the field name is unique to kubeconfig's YAML schema, so this is nearly as specific as spotting a raw PEM key.
-```
-client-key-data: <base64-encoded client private key>
-```
-Demo trigger (synthetic, non-functional):
-```
-client-key-data: WRd+Px/BTHRJJbykE0/E8/5clLCZFNV8S2QT6INGDpyO==
-```
-
-**`kubeconfig_bearer_token`** — confidence **0.70**
-Matches a quoted `token:` field (40+ chars) appearing near `kubeconfig`/`kubectl`/`serviceaccount`/`k8s`
-context — typically a cluster bearer token. Quotes around the value are now required (previously optional,
-which left the secret boundary ambiguous), and the minimum length was raised from 20 to 40 chars to match
-real base64url-encoded service account tokens rather than firing on short mentions of "token" in k8s docs.
-```
-kubeconfig user context: token: "<40+ character quoted token>"
-```
-Demo trigger (synthetic, non-functional):
-```
-kubeconfig user context: token: "pxyB9JKmyLDUwMbqJfgLq0mFPz3Tn5xR8vQeYh2sKdL9"
-```
+> **Removed:** `kubeconfig_client_key_data` and `kubeconfig_bearer_token` (the whole Kubernetes
+> section) were removed — not because either pattern was found broken, but because this client
+> has no Kubernetes surface to protect. Dropping dead detection surface area is also a net win
+> for false-positive risk, particularly for `kubeconfig_bearer_token`'s generic `token: "..."` shape.

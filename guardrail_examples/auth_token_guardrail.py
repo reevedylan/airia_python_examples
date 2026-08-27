@@ -70,7 +70,7 @@ TOKEN_PATTERNS = [
     ),
     dict(
         name="openai_api_key_project",
-        message="OpenAI project-scoped API key: 'sk-proj-' followed by 20+ base64url chars",
+        message="OpenAI project-scoped API key: 'sk-proj-' followed by 130+ base64url chars",
         regex=re.compile(r"\bsk-proj-[A-Za-z0-9_\-]{20,}\b"),
         confidence=0.9,
     ),
@@ -78,7 +78,7 @@ TOKEN_PATTERNS = [
         name="openai_api_key_legacy",
         message="OpenAI legacy API key: 'sk-' followed by exactly 48 alphanumeric chars",
         regex=re.compile(r"\bsk-[A-Za-z0-9]{48}\b"),
-        confidence=0.65,
+        confidence=0.9,
     ),
     dict(
         name="google_api_key",
@@ -86,12 +86,24 @@ TOKEN_PATTERNS = [
         regex=re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),
         confidence=0.95,
     ),
+    dict(
+        name="google_api_key_auth",
+        message="Google 'Auth key' (new AI Studio/Gemini format): 'AQ.' followed by 20+ "
+                "base64url/dot chars (provisional -- Google hasn't published an exact spec yet)",
+        regex=re.compile(r"\bAQ\.[A-Za-z0-9_\-.]{20,}\b"),
+        confidence=0.5,
+    ),
 
     # --- Cloud providers ------------------------------------------------------
     dict(
         name="aws_access_key_id",
-        message="AWS Access Key ID: known prefix (AKIA/ASIA/AROA/AIDA/etc.) + 16 uppercase alphanumeric chars",
-        regex=re.compile(r"\b(?:A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b"),
+        message="AWS Access Key ID: 'AKIA'/'ASIA'/'A3T...' + 16 uppercase alphanumeric chars, "
+                "or a non-access-key identifier prefix (ABIA/ACCA/AGPA/AIDA/AIPA/ANPA/ANVA/APKA/AROA/ASCA) "
+                "+ 17 uppercase alphanumeric chars",
+        regex=re.compile(
+            r"\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b"
+            r"|\b(?:ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|APKA|AROA|ASCA)[A-Z0-9]{17}\b"
+        ),
         confidence=0.95,
     ),
     dict(
@@ -117,14 +129,25 @@ TOKEN_PATTERNS = [
     ),
     dict(
         name="github_oauth_app_token",
-        message="GitHub OAuth/App/User/Refresh token: 'gho_'/'ghu_'/'ghs_'/'ghr_' + 36-255 alphanumeric chars",
-        regex=re.compile(r"\bgh[ousr]_[A-Za-z0-9]{36,255}\b"),
+        message="GitHub OAuth/User/Refresh token: 'gho_'/'ghu_'/'ghr_' + 36-255 alphanumeric chars",
+        regex=re.compile(r"\bgh[our]_[A-Za-z0-9]{36,255}\b"),
         confidence=0.9,
     ),
     dict(
+        name="github_app_installation_token",
+        message="GitHub App installation token: 'ghs_' + 36-600 alphanumeric/dot/underscore/hyphen chars "
+                "(current stateless JWT format, rolled out through mid-2026)",
+        regex=re.compile(r"\bghs_[A-Za-z0-9._-]{36,600}\b"),
+        confidence=0.75,
+    ),
+    dict(
         name="gitlab_pat",
-        message="GitLab personal access token: 'glpat-' + 20 alphanumeric/underscore/hyphen chars",
-        regex=re.compile(r"\bglpat-[A-Za-z0-9_\-]{20}\b"),
+        message="GitLab personal access token: legacy 'glpat-' + 20 alphanumeric/underscore/hyphen chars, "
+                "or routable format 'glpat-' + 27-300 chars + '.' + 2-char version + 7-char CRC32 suffix",
+        regex=re.compile(
+            r"\bglpat-[0-9A-Za-z_-]{20}\b"
+            r"|\bglpat-[0-9A-Za-z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b"
+        ),
         confidence=0.95,
     ),
     dict(
@@ -151,25 +174,26 @@ TOKEN_PATTERNS = [
         name="jwt",
         message="JSON Web Token: three base64url segments separated by '.', header starting with 'eyJ'",
         regex=re.compile(r"\beyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b"),
-        confidence=0.6,
+        confidence=0.85,
     ),
     dict(
         name="bearer_auth_header",
         message="HTTP 'Authorization: Bearer <token>' header value (20+ chars)",
         regex=re.compile(r"(?i)authorization\s*:\s*bearer\s+(?P<secret>[A-Za-z0-9._~+/-]{20,}=*)"),
-        confidence=0.8,
+        confidence=0.4,
         group="secret",
     ),
     dict(
         name="basic_auth_in_url",
         message="Credentials embedded directly in a URL: scheme://user:password@host",
-        regex=re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]{2,9}://[^/\s:@]{1,64}:[^/\s:@]{1,64}@"),
+        regex=re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]{1,20}://[^/\s:@]{1,64}:[^/\s:@]{1,64}@"),
         confidence=0.85,
     ),
     dict(
         name="pem_private_key",
-        message="PEM-encoded private key block: '-----BEGIN [TYPE ]PRIVATE KEY-----'",
-        regex=re.compile(r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----"),
+        message="PEM-encoded private key block: '-----BEGIN [TYPE ]PRIVATE KEY-----' or "
+                "'-----BEGIN PGP PRIVATE KEY BLOCK-----'",
+        regex=re.compile(r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----"),
         confidence=0.99,
     ),
     dict(
@@ -178,7 +202,7 @@ TOKEN_PATTERNS = [
                 "(generated tokens/keys are almost always 24+ chars)",
         regex=re.compile(
             r"(?i)(?:api[_-]?key|api[_-]?token|access[_-]?token)"
-            r"['\"]?\s*[:=]\s*['\"](?P<secret>[A-Za-z0-9_\-/+=]{24,})['\"]"
+            r"['\"]?\s*[:=]\s*['\"]?(?P<secret>[A-Za-z0-9_\-/+=]{24,})['\"]?(?=[\s'\"`,;]|$)"
         ),
         confidence=0.5,
         group="secret",
@@ -201,26 +225,6 @@ TOKEN_PATTERNS = [
             r"['\"]?(?P<secret>[A-Za-z0-9_\-./+=]{16,})['\"]?"
         ),
         confidence=0.6,
-        group="secret",
-    ),
-
-    # --- Kubernetes --------------------------------------------------------------
-    dict(
-        name="kubeconfig_client_key_data",
-        message="kubeconfig 'client-key-data' field: base64-encoded client private key",
-        regex=re.compile(r"client-key-data\s*:\s*(?P<secret>[A-Za-z0-9+/]{40,}=*)"),
-        confidence=0.85,
-        group="secret",
-    ),
-    dict(
-        name="kubeconfig_bearer_token",
-        message="A 'token:' field near kubeconfig/kubectl/serviceaccount context, "
-                "typically a cluster bearer token",
-        regex=re.compile(
-            r"(?i)(?:kubeconfig|kubectl|serviceaccount|k8s)[\s\S]{0,60}?"
-            r"token['\"]?\s*:\s*['\"](?P<secret>[A-Za-z0-9._\-]{40,})['\"]"
-        ),
-        confidence=0.7,
         group="secret",
     ),
 ]
