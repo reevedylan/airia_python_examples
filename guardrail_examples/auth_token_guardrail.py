@@ -241,7 +241,10 @@ def _scan_text(text: str, message_index: int) -> list:
     for pattern in TOKEN_PATTERNS:
         group = pattern.get("group", 0)
         for match in pattern["regex"].finditer(text):
-            redact_start, redact_end = match.span(group)
+            try:
+                redact_start, redact_end = match.span(group)
+            except (IndexError, re.error):
+                continue
             if redact_start == -1 or _span_overlaps(redact_start, redact_end, claimed_spans):
                 continue
             claimed_spans.append((redact_start, redact_end))
