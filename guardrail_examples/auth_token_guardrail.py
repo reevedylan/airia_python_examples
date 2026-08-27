@@ -42,11 +42,30 @@ Output Structure (REDACT mode - REQUIRED FIELDS):
         ]
 """
 
+import ipaddress
 import re
 
 # ============================================================================
 # YOUR CUSTOM FILTER CODE HERE
 # ============================================================================
+
+
+def _is_loopback_or_private_host(host: str) -> bool:
+    hostname = host.strip().lower()
+    if hostname == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_private
+    except ValueError:
+        return False
+
+
+def _validate_basic_auth_in_url(match: re.Match) -> bool:
+    if _is_loopback_or_private_host(match.group("host")):
+        return False
+    if match.group("user") == match.group("password"):
+        return False
+    return True
 
 # ----------------------------------------------------------------------------
 # Named token patterns.
@@ -187,13 +206,19 @@ TOKEN_PATTERNS = [
         name="basic_auth_in_url",
         message="Credentials embedded directly in a URL: scheme://user:password@host "
                 "(skipped when the password is a template placeholder like <pass>, "
-                "{{password}}, or ${DB_PASSWORD})",
+                "{{password}}, or ${DB_PASSWORD}; the host is loopback/private, e.g. "
+                "127.0.0.1, localhost, or an RFC1918 address; or the username equals "
+                "the password, e.g. a throwaway test credential)",
         regex=re.compile(
-            r"[a-zA-Z][a-zA-Z0-9+.\-]{1,20}://[^/\s:@]{1,64}:"
+            r"(?P<creds>[a-zA-Z][a-zA-Z0-9+.\-]{1,20}://"
+            r"(?P<user>[^/\s:@]{1,64}):"
             r"(?!<[^>]*>@|\{\{[^}]*\}\}@|\$\{[^}]*\}@)"
-            r"[^/\s:@]{1,64}@"
+            r"(?P<password>[^/\s:@]{1,64})@)"
+            r"(?P<host>[^/\s:@]{1,253})"
         ),
         confidence=0.85,
+        group="creds",
+        validate=_validate_basic_auth_in_url,
     ),
     dict(
         name="pem_private_key",
@@ -246,7 +271,10 @@ def _scan_text(text: str, message_index: int) -> list:
 
     for pattern in TOKEN_PATTERNS:
         group = pattern.get("group", 0)
+        validate = pattern.get("validate")
         for match in pattern["regex"].finditer(text):
+            if validate is not None and not validate(match):
+                continue
             try:
                 redact_start, redact_end = match.span(group)
             except (IndexError, re.error):
