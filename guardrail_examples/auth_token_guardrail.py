@@ -185,8 +185,14 @@ TOKEN_PATTERNS = [
     ),
     dict(
         name="basic_auth_in_url",
-        message="Credentials embedded directly in a URL: scheme://user:password@host",
-        regex=re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]{1,20}://[^/\s:@]{1,64}:[^/\s:@]{1,64}@"),
+        message="Credentials embedded directly in a URL: scheme://user:password@host "
+                "(skipped when the password is a template placeholder like <pass>, "
+                "{{password}}, or ${DB_PASSWORD})",
+        regex=re.compile(
+            r"[a-zA-Z][a-zA-Z0-9+.\-]{1,20}://[^/\s:@]{1,64}:"
+            r"(?!<[^>]*>@|\{\{[^}]*\}\}@|\$\{[^}]*\}@)"
+            r"[^/\s:@]{1,64}@"
+        ),
         confidence=0.85,
     ),
     dict(
