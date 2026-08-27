@@ -105,8 +105,13 @@ TOKEN_PATTERNS = [
     dict(
         name="gcp_service_account_key",
         message="GCP service account JSON key: '\"type\": \"service_account\"' near a '\"private_key\"' field",
-        regex=re.compile(r"\"type\"\s*:\s*\"service_account\"[\s\S]{0,500}?\"private_key\""),
+        regex=re.compile(
+            r"\"type\"\s*:\s*\"service_account\""
+            r"[\s\S]{0,500}?"
+            r"\"private_key\"\s*:\s*\"(?P<secret>[^\"]{20,})\""
+        ),
         confidence=0.9,
+        group="secret",
     ),
     # --- Source control / package registries -----------------------------------
     dict(
@@ -254,19 +259,20 @@ def _scan_text(text: str, message_index: int) -> list:
     for pattern in TOKEN_PATTERNS:
         group = pattern.get("group", 0)
         for match in pattern["regex"].finditer(text):
-            start, end = match.span(group)
-            if start == -1 or _span_overlaps(start, end, claimed_spans):
+            full_start, full_end = match.span(0)
+            redact_start, redact_end = match.span(group)
+            if redact_start == -1 or _span_overlaps(full_start, full_end, claimed_spans):
                 continue
-            claimed_spans.append((start, end))
+            claimed_spans.append((full_start, full_end))
             violations.append({
                 "content_type": "text",
-                "value": text[start:end],
+                "value": text[redact_start:redact_end],
                 "message_index": message_index,
                 "is_violation": True,
                 "violation_message": f"Detected {pattern['message']}",
                 "confidence_score": pattern["confidence"],
-                "start": start,
-                "end": end,
+                "start": redact_start,
+                "end": redact_end,
             })
 
     violations.sort(key=lambda v: v["start"])
@@ -276,11 +282,8 @@ def _scan_text(text: str, message_index: int) -> list:
 output = []
 for message_index, item in enumerate(input):
     if item.get("content_type") != "text":
-        output.append(item)
         continue
 
     item_violations = _scan_text(item.get("value", ""), message_index)
     if item_violations:
         output.extend(item_violations)
-    else:
-        output.append(item)
