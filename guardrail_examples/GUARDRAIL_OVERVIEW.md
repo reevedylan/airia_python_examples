@@ -295,17 +295,3 @@ Demo trigger (synthetic, non-functional):
 ```
 kubeconfig user context: token: pxyB9JKmyLDUwMbqJfgLq.nbK894
 ```
-
----
-
-## Quick copy-paste test set
-
-All examples above are **synthetic** — generated to match each pattern's exact shape/length,
-not real credentials. Safe to paste into a demo chat to trigger each rule. Run
-`auth_token_guardrail.py` directly against a batch to sanity-check before a demo:
-
-```python
-input = [{"content_type": "text", "value": "aws_secret_key = \"0/9BZhvWaXH6K2/tyLBhhOhg9uhkxiiEZpFfk1OH\" and Authorization: Bearer XRZv7qdYdk2r7xgHWPB6PRWJ1Gk8cgSC"}]
-exec(open("auth_token_guardrail.py").read())
-print(output)
-```
