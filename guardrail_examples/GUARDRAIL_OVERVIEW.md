@@ -35,9 +35,9 @@ Demo trigger (synthetic, non-functional):
 sk-proj-gotu2iXW7GboIRoL3u6aHwnMztVuaP_coUNEhEkk
 ```
 
-**`openai_api_key_legacy`** — confidence **0.85**
+**`openai_api_key_legacy`** — confidence **0.65**
 Matches `sk-` + exactly 48 alphanumeric chars.
-Why: `sk-` alone is a short, generic prefix shared by other schemes; the fixed length helps but doesn't fully offset that.
+Why: `sk-` alone is a short, generic prefix shared by other schemes — including well beyond OpenAI — so confidence is kept low even with the fixed length.
 ```
 sk-<48 alphanumeric characters>
 ```
@@ -71,19 +71,26 @@ AKIAI1LR3PE29GD8AFPK
 ```
 
 **`aws_secret_access_key`** — confidence **0.60**
-Matches a 40-char base64-ish string, only when `aws` appears within 20 chars beforehand.
+Matches a 40-char base64-ish string, only when `aws` appears within 20 chars beforehand —
+the 20-char gap is matched across newlines, so a value on its own line right after a
+`aws_secret_access_key =` label still counts.
 Why: the bare 40-char value is too generic on its own; keyword proximity narrows it but doesn't eliminate false positives.
 ```
-aws_secret_key = "<40-char base64-ish string>"
+aws_secret_key =
+  "<40-char base64-ish string>"
 ```
 Demo trigger (synthetic, non-functional):
 ```
-aws_secret_key = "0/9BZhvWaXH6K2/tyLBhhOhg9uhkxiiEZpFfk1OH"
+aws_secret_key =
+  "0/9BZhvWaXH6K2/tyLBhhOhg9uhkxiiEZpFfk1OH"
 ```
 
 **`gcp_service_account_key`** — confidence **0.90**
-Matches `"type": "service_account"` appearing near a `"private_key"` field.
-Why: two semantically specific JSON fields co-occurring is very unlikely outside a real service-account key.
+Matches `"type": "service_account"` appearing near a `"private_key"` field. The `"type"` marker
+is required context for a match, but only the `"private_key"` value itself is captured and redacted —
+not the surrounding JSON structure.
+Why: two semantically specific JSON fields co-occurring is very unlikely outside a real service-account key;
+narrowing the redaction to just the key value avoids over-redacting non-sensitive structural JSON around it.
 ```
 {"type": "service_account", "project_id": "<project-id>", "private_key_id": "<key-id>", "private_key": "-----BEGIN PRIVATE KEY-----\n<base64-encoded key data>\n-----END PRIVATE KEY-----\n", "client_email": "<name>@<project-id>.iam.gserviceaccount.com"}
 ```
@@ -173,11 +180,13 @@ dckr_pat_yX-ZFsan2Cw7gFp6r7O425u85HF
 
 ## Generic / structural formats
 
-**`jwt`** — confidence **0.85**
-Matches three base64url segments separated by `.`, header starting with `eyJ`.
-Why: structurally distinctive, but not every JWT is sensitive (some are non-secret identity tokens), hence a small discount.
+**`jwt`** — confidence **0.60**
+Matches three base64url segments (20+ chars each) separated by `.`, header starting with `eyJ`.
+Why: `eyJ` is just the base64 encoding of `{"`, so any base64-encoded JSON can start this way; requiring 20+ chars per segment
+filters out short coincidental matches, but the pattern still isn't unique to real JWTs (blog posts, docs, and non-secret
+identity tokens all fit the shape), hence the low confidence.
 ```
-<base64url header starting with eyJ>.<base64url payload>.<base64url signature>
+<base64url header starting with eyJ, 20+ chars>.<base64url payload, 20+ chars>.<base64url signature, 20+ chars>
 ```
 Demo trigger (synthetic, non-functional):
 ```
@@ -207,7 +216,9 @@ https://demo_user:SuperSecretPass123@internal-db.example.com:5432/prod
 ```
 
 **`pem_private_key`** — confidence **0.99**
-Matches a PEM-encoded private key block: `-----BEGIN … PRIVATE KEY-----`.
+Matches a PEM-encoded private key block: `-----BEGIN [TYPE ]PRIVATE KEY-----`, requiring a
+single space before `PRIVATE KEY` (and after an optional type like `RSA`/`EC`/`DSA`/`OPENSSH`/`PGP`)
+so malformed headers like `-----BEGINPRIVATE KEY-----` don't match.
 Why: exact, standardized header string — essentially no false-positive surface.
 ```
 -----BEGIN RSA PRIVATE KEY-----
@@ -222,31 +233,26 @@ MIIEpAIBAAKCAQEA1234ExampleFakeKeyMaterialDoNotUseabcdefghijk
 ```
 
 **`generic_labeled_token`** — confidence **0.50**
-Matches a variable literally named `api_key`/`secret`/`token` assigned a 24+ char value
+Matches a variable literally named `api_key`/`api_token`/`access_token` assigned a 24+ char value
 (generated tokens/keys are almost always 24+ chars, so the bar is set there to cut
 placeholder/example noise without missing real ones).
-Why: still a keyword-only heuristic, but the raised length bar filters out most
-doc/tutorial placeholders (`your_key_here`, etc.) while real generated secrets stay well above it.
+Why: still a keyword-only heuristic, but restricted to explicit API-key/token naming —
+bare `secret` and `token` were dropped because they fire on application-level config
+(Django's `SECRET_KEY`, `secret_message`, generic `token:` fields, etc.) that isn't a
+credential leak. The raised length bar also filters out most doc/tutorial placeholders
+(`your_key_here`, etc.) while real generated secrets stay well above it.
 ```
-token: "<24+ character value>"
+api_key: "<24+ character value>"
 ```
 Demo trigger (synthetic, non-functional):
 ```
-token: "ifdFzctEq8oB7GVvouNndNWYzjFnMp"
+api_key: "ifdFzctEq8oB7GVvouNndNWYzjFnMpXXXX"
 ```
 
-**`generic_labeled_password`** — confidence **0.50**
-Matches a variable literally named `passwd`/`password` assigned an 8+ char value.
-Why: split out from the token/key case because real passwords are commonly short
-(8–16 chars) — raising the bar the way `generic_labeled_token` did would miss most
-actual leaked passwords, so this keeps a lower threshold and accepts more noise in exchange.
-```
-password: "<8+ character value>"
-```
-Demo trigger (synthetic, non-functional):
-```
-password: "YKYcwIBQxeGP"
-```
+> **Removed:** `generic_labeled_password` (matched `passwd`/`password` + an 8+ char value)
+> was removed entirely. `password` is too common a keyword at an 8-char threshold — it fired
+> constantly on code snippets, docs, and test fixtures using mock passwords, and the false-positive
+> rate wasn't fixable by tuning the threshold without also missing most real short passwords.
 
 ## HTTP auth headers (vendor-agnostic)
 
@@ -285,13 +291,15 @@ Demo trigger (synthetic, non-functional):
 client-key-data: WRd+Px/BTHRJJbykE0/E8/5clLCZFNV8S2QT6INGDpyO==
 ```
 
-**`kubeconfig_bearer_token`** — confidence **0.65**
-Matches a `token:` field appearing near `kubeconfig`/`kubectl`/`serviceaccount`/`k8s` context — typically a cluster bearer token.
-Why: keyword-proximity heuristic like `aws_secret_access_key` — the keyword narrows it, but the value itself is just an opaque or JWT-shaped string.
+**`kubeconfig_bearer_token`** — confidence **0.70**
+Matches a quoted `token:` field (40+ chars) appearing near `kubeconfig`/`kubectl`/`serviceaccount`/`k8s`
+context — typically a cluster bearer token. Quotes around the value are now required (previously optional,
+which left the secret boundary ambiguous), and the minimum length was raised from 20 to 40 chars to match
+real base64url-encoded service account tokens rather than firing on short mentions of "token" in k8s docs.
 ```
-kubeconfig user context: token: <opaque or JWT-shaped token>
+kubeconfig user context: token: "<40+ character quoted token>"
 ```
 Demo trigger (synthetic, non-functional):
 ```
-kubeconfig user context: token: pxyB9JKmyLDUwMbqJfgLq.nbK894
+kubeconfig user context: token: "pxyB9JKmyLDUwMbqJfgLq0mFPz3Tn5xR8vQeYh2sKdL9"
 ```
