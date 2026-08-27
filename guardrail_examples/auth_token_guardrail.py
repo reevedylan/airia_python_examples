@@ -78,7 +78,7 @@ TOKEN_PATTERNS = [
         name="openai_api_key_legacy",
         message="OpenAI legacy API key: 'sk-' followed by exactly 48 alphanumeric chars",
         regex=re.compile(r"\bsk-[A-Za-z0-9]{48}\b"),
-        confidence=0.85,
+        confidence=0.65,
     ),
     dict(
         name="google_api_key",
@@ -98,7 +98,7 @@ TOKEN_PATTERNS = [
         name="aws_secret_access_key",
         message="AWS Secret Access Key: 40-char base64-ish string, only flagged when the "
                 "word 'aws' appears within 20 chars beforehand (bare 40-char strings are too common)",
-        regex=re.compile(r"(?i)aws.{0,20}?[\"'](?P<secret>[0-9a-zA-Z/+]{40})[\"']"),
+        regex=re.compile(r"(?i)aws[\s\S]{0,20}?[\"'](?P<secret>[0-9a-zA-Z/+]{40})[\"']"),
         confidence=0.6,
         group="secret",
     ),
@@ -161,8 +161,8 @@ TOKEN_PATTERNS = [
     dict(
         name="jwt",
         message="JSON Web Token: three base64url segments separated by '.', header starting with 'eyJ'",
-        regex=re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{10,}\b"),
-        confidence=0.85,
+        regex=re.compile(r"\beyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b"),
+        confidence=0.6,
     ),
     dict(
         name="bearer_auth_header",
@@ -179,28 +179,17 @@ TOKEN_PATTERNS = [
     ),
     dict(
         name="pem_private_key",
-        message="PEM-encoded private key block: '-----BEGIN ... PRIVATE KEY-----'",
-        regex=re.compile(r"-----BEGIN\s?(?:RSA|EC|DSA|OPENSSH|PGP)?\s?PRIVATE KEY-----"),
+        message="PEM-encoded private key block: '-----BEGIN [TYPE ]PRIVATE KEY-----'",
+        regex=re.compile(r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|PGP) )?PRIVATE KEY-----"),
         confidence=0.99,
     ),
     dict(
         name="generic_labeled_token",
-        message="A variable literally named api_key/secret/token assigned a 24+ char value "
+        message="A variable literally named api_key/api_token/access_token assigned a 24+ char value "
                 "(generated tokens/keys are almost always 24+ chars)",
         regex=re.compile(
-            r"(?i)(?:api[_-]?key|secret|token)"
+            r"(?i)(?:api[_-]?key|api[_-]?token|access[_-]?token)"
             r"['\"]?\s*[:=]\s*['\"](?P<secret>[A-Za-z0-9_\-/+=]{24,})['\"]"
-        ),
-        confidence=0.5,
-        group="secret",
-    ),
-    dict(
-        name="generic_labeled_password",
-        message="A variable literally named passwd/password assigned an 8+ char value "
-                "(real passwords are often short, so kept as a separate, lower bar)",
-        regex=re.compile(
-            r"(?i)(?:passwd|password)"
-            r"['\"]?\s*[:=]\s*['\"](?P<secret>[A-Za-z0-9_\-/+=]{8,})['\"]"
         ),
         confidence=0.5,
         group="secret",
@@ -240,9 +229,9 @@ TOKEN_PATTERNS = [
                 "typically a cluster bearer token",
         regex=re.compile(
             r"(?i)(?:kubeconfig|kubectl|serviceaccount|k8s)[\s\S]{0,60}?"
-            r"token['\"]?\s*:\s*['\"]?(?P<secret>[A-Za-z0-9._\-]{20,})['\"]?"
+            r"token['\"]?\s*:\s*['\"](?P<secret>[A-Za-z0-9._\-]{40,})['\"]"
         ),
-        confidence=0.65,
+        confidence=0.7,
         group="secret",
     ),
 ]
