@@ -21,8 +21,8 @@ GUARDRAIL = Path(__file__).with_name("auth_token_guardrail.py")
 _CODE = compile(GUARDRAIL.read_text(), str(GUARDRAIL), "exec")
 
 # Parsing the rule name back out of violation_message deliberately pins its
-# format ("[name] Label -- matched: ...") -- if that changes, these tests say so.
-_RULE = re.compile(r"^\[([^\]]+)\]")
+# format ("[name] Matched: <masked>") -- if that changes, these tests say so.
+_RULE = re.compile(r"^\[([^\]]+)\] Matched: \S+$")
 
 
 def scan(*messages):
@@ -39,7 +39,12 @@ def scan(*messages):
 
 def rules(violations):
     """The rule names that fired, in output order."""
-    return [_RULE.match(v["violation_message"]).group(1) for v in violations]
+    names = []
+    for v in violations:
+        matched = _RULE.match(v["violation_message"])
+        assert matched, f"unexpected violation_message format: {v['violation_message']!r}"
+        names.append(matched.group(1))
+    return names
 
 
 def token_patterns():
@@ -223,7 +228,7 @@ def test_nested_match_does_not_shorten_the_redaction():
     assert (found[0]["start"], found[0]["end"]) == (0, len(ghs))
 
 
-def test_header_hits_are_not_mislabelled_as_variable_assignments():
+def test_header_hits_are_not_attributed_to_the_keyword_heuristic():
     """generic_labeled_token's keywords are substrings of these header names, so
     it must not claim their spans first."""
     for header in ("X-Api-Key", "X-Access-Token", "Api-Key", "X-Auth-Token"):
@@ -234,7 +239,7 @@ def test_header_hits_are_not_mislabelled_as_variable_assignments():
 def test_keyword_heuristic_is_listed_last():
     """The reason is structural, not stylistic: spans are claimed in list order,
     so a keyword heuristic placed above a specific pattern silently steals its
-    matches. See test_header_hits_are_not_mislabelled_as_variable_assignments."""
+    matches. See test_header_hits_are_not_attributed_to_the_keyword_heuristic."""
     assert token_patterns()[-1]["name"] == "generic_labeled_token"
 
 
@@ -254,25 +259,31 @@ def test_specific_pattern_wins_over_generic():
 # Pattern table hygiene
 # ---------------------------------------------------------------------------
 
+KNOWN_FIELDS = {"name", "regex", "group", "validate"}
+
+
 def test_pattern_metadata_is_complete_and_used():
     seen = set()
     for p in token_patterns():
-        for field in ("name", "label", "shape", "regex"):
+        for field in ("name", "regex"):
             assert p.get(field), f"{p.get('name')} is missing {field}"
-        assert "message" not in p, (
-            f"{p['name']} still has a `message` key -- it is surfaced as `shape` now; "
-            "an unread field lets the prose drift from the regex beside it"
+        # No free-text field describing the regex. Prose that lives in the table
+        # but is never read drifts from the pattern beside it silently -- that is
+        # how three shape descriptions ended up wrong. Shape notes belong in a
+        # comment above the regex, where they read as documentation.
+        assert not set(p) - KNOWN_FIELDS, (
+            f"{p['name']} has unread field(s) {sorted(set(p) - KNOWN_FIELDS)}"
         )
         assert p["name"] not in seen, f"duplicate pattern name {p['name']}"
         seen.add(p["name"])
 
 
-def test_name_label_and_shape_are_all_surfaced():
-    p = next(p for p in token_patterns() if p["name"] == "github_pat_classic")
+def test_rule_name_is_the_only_identifier_in_the_output():
+    """violation_message carries the name and nothing else identifying, so names
+    have to be distinct enough to act on -- see test_pattern_metadata for that."""
+    name = "github_pat_classic"
     message = scan("ghp_" + "a" * 36)[0]["violation_message"]
-    assert p["name"] in message
-    assert p["label"] in message
-    assert p["shape"] in message
+    assert message.startswith(f"[{name}] "), message
 
 
 # ---------------------------------------------------------------------------
