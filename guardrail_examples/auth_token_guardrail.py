@@ -21,8 +21,7 @@ Output Structure (AUDIT/BLOCK mode):
                 "value": "Content string",
                 "message_index": 0,                     # Which input message (0-based)
                 "is_violation": True,                   # Must be True for violations
-                "violation_message": "Reason for violation",
-                "confidence_score": 0.95                # Optional: 0.0-1.0
+                "violation_message": "Reason for violation"
             }
         ]
 
@@ -35,7 +34,6 @@ Output Structure (REDACT mode - REQUIRED FIELDS):
                 "message_index": 0,                     # Which input message (0-based)
                 "is_violation": True,                   # Must be True for violations
                 "violation_message": "Reason for violation",
-                "confidence_score": 0.95,               # Optional: 0.0-1.0
                 "start": 15,                            # REQUIRED: Start offset (inclusive)
                 "end": 30                               # REQUIRED: End offset (exclusive)
             }
@@ -86,28 +84,24 @@ TOKEN_PATTERNS = [
         message="Anthropic API key: 'sk-ant-api03-' or 'sk-ant-admin01-' followed by "
                 "93 base64url chars and a trailing 'AA'",
         regex=re.compile(r"sk-ant-(?:api03|admin01)-[A-Za-z0-9_\-]{93}AA"),
-        confidence=0.99,
     ),
     dict(
         name="openai_api_key_project",
         label="OpenAI project API key",
         message="OpenAI project-scoped API key: 'sk-proj-' followed by 130+ base64url chars",
         regex=re.compile(r"\bsk-proj-[A-Za-z0-9_\-]{20,}\b"),
-        confidence=0.9,
     ),
     dict(
         name="openai_api_key_legacy",
         label="OpenAI API key",
         message="OpenAI legacy API key: 'sk-' followed by exactly 48 alphanumeric chars",
         regex=re.compile(r"\bsk-[A-Za-z0-9]{48}\b"),
-        confidence=0.9,
     ),
     dict(
         name="google_api_key",
         label="Google API key",
         message="Google API key: 'AIza' followed by 35 alphanumeric/underscore/hyphen chars",
         regex=re.compile(r"\bAIza[0-9A-Za-z_\-]{35}\b"),
-        confidence=0.95,
     ),
     dict(
         name="google_api_key_auth",
@@ -115,7 +109,6 @@ TOKEN_PATTERNS = [
         message="Google 'Auth key' (new AI Studio/Gemini format): 'AQ.' followed by 20+ "
                 "base64url/dot chars (provisional -- Google hasn't published an exact spec yet)",
         regex=re.compile(r"\bAQ\.[A-Za-z0-9_\-.]{20,}\b"),
-        confidence=0.5,
     ),
 
     # --- Cloud providers ------------------------------------------------------
@@ -129,7 +122,6 @@ TOKEN_PATTERNS = [
             r"\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b"
             r"|\b(?:ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|APKA|AROA|ASCA)[A-Z0-9]{17}\b"
         ),
-        confidence=0.95,
     ),
     dict(
         name="aws_secret_access_key",
@@ -137,7 +129,6 @@ TOKEN_PATTERNS = [
         message="AWS Secret Access Key: 40-char base64-ish string, only flagged when the "
                 "word 'aws' appears within 20 chars beforehand (bare 40-char strings are too common)",
         regex=re.compile(r"(?i)aws[\s\S]{0,20}?[\"'](?P<secret>[0-9a-zA-Z/+]{40})[\"']"),
-        confidence=0.6,
         group="secret",
     ),
     # --- Source control / package registries -----------------------------------
@@ -146,21 +137,18 @@ TOKEN_PATTERNS = [
         label="GitHub personal access token",
         message="GitHub classic personal access token: 'ghp_' + 36 alphanumeric chars",
         regex=re.compile(r"\bghp_[A-Za-z0-9]{36}\b"),
-        confidence=0.95,
     ),
     dict(
         name="github_pat_fine_grained",
         label="GitHub fine-grained personal access token",
         message="GitHub fine-grained personal access token: 'github_pat_' + 82 alphanumeric/underscore chars",
         regex=re.compile(r"\bgithub_pat_[A-Za-z0-9_]{82}\b"),
-        confidence=0.95,
     ),
     dict(
         name="github_oauth_app_token",
         label="GitHub OAuth/user/refresh token",
         message="GitHub OAuth/User/Refresh token: 'gho_'/'ghu_'/'ghr_' + 36-255 alphanumeric chars",
         regex=re.compile(r"\bgh[our]_[A-Za-z0-9]{36,255}\b"),
-        confidence=0.9,
     ),
     dict(
         name="github_app_installation_token",
@@ -168,7 +156,6 @@ TOKEN_PATTERNS = [
         message="GitHub App installation token: 'ghs_' + 36-600 alphanumeric/dot/underscore/hyphen chars "
                 "(current stateless JWT format, rolled out through mid-2026)",
         regex=re.compile(r"\bghs_[A-Za-z0-9._-]{36,600}\b"),
-        confidence=0.75,
     ),
     dict(
         name="gitlab_pat",
@@ -179,28 +166,24 @@ TOKEN_PATTERNS = [
             r"\bglpat-[0-9A-Za-z_-]{20}\b"
             r"|\bglpat-[0-9A-Za-z_-]{27,300}\.[0-9a-z]{2}[0-9a-z]{7}\b"
         ),
-        confidence=0.95,
     ),
     dict(
         name="npm_token",
         label="npm access token",
         message="npm access token: 'npm_' + 36 alphanumeric chars",
         regex=re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"),
-        confidence=0.95,
     ),
     dict(
         name="pypi_token",
         label="PyPI API token",
         message="PyPI API token: 'pypi-AgEIcHlwaS5vcmc' fixed prefix + 50+ alphanumeric/underscore/hyphen chars",
         regex=re.compile(r"\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_\-]{50,1000}\b"),
-        confidence=0.95,
     ),
     dict(
         name="docker_hub_pat",
         label="Docker Hub personal access token",
         message="Docker Hub personal access token: 'dckr_pat_' + 27 alphanumeric/underscore/hyphen chars",
         regex=re.compile(r"\bdckr_pat_[A-Za-z0-9_\-]{27}\b"),
-        confidence=0.95,
     ),
 
     # --- Generic / structural formats ---------------------------------------------
@@ -209,14 +192,12 @@ TOKEN_PATTERNS = [
         label="JSON Web Token",
         message="JSON Web Token: three base64url segments separated by '.', header starting with 'eyJ'",
         regex=re.compile(r"\beyJ[A-Za-z0-9_-]{20,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b"),
-        confidence=0.85,
     ),
     dict(
         name="bearer_auth_header",
         label="Bearer authorization header",
         message="HTTP 'Authorization: Bearer <token>' header value (20+ chars)",
         regex=re.compile(r"(?i)authorization\s*:\s*bearer\s+(?P<secret>[A-Za-z0-9._~+/-]{20,}=*)"),
-        confidence=0.4,
         group="secret",
     ),
     dict(
@@ -234,7 +215,6 @@ TOKEN_PATTERNS = [
             r"(?P<password>[^/\s:@]{1,64})@)"
             r"(?P<host>[^/\s:@]{1,253})"
         ),
-        confidence=0.85,
         group="creds",
         validate=_validate_basic_auth_in_url,
     ),
@@ -244,7 +224,6 @@ TOKEN_PATTERNS = [
         message="PEM-encoded private key block: '-----BEGIN [TYPE ]PRIVATE KEY-----' or "
                 "'-----BEGIN PGP PRIVATE KEY BLOCK-----'",
         regex=re.compile(r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----"),
-        confidence=0.99,
     ),
     dict(
         name="generic_labeled_token",
@@ -255,7 +234,6 @@ TOKEN_PATTERNS = [
             r"(?i)(?:api[_-]?key|api[_-]?token|access[_-]?token)"
             r"['\"]?\s*[:=]\s*['\"]?(?P<secret>[A-Za-z0-9_\-/+=]{24,})['\"]?(?=[\s'\"`,;]|$)"
         ),
-        confidence=0.5,
         group="secret",
     ),
 
@@ -265,7 +243,6 @@ TOKEN_PATTERNS = [
         label="Basic authorization header",
         message="HTTP 'Authorization: Basic <base64>' header value (12+ chars)",
         regex=re.compile(r"(?i)authorization\s*:\s*basic\s+(?P<secret>[A-Za-z0-9+/]{12,}=*)"),
-        confidence=0.8,
         group="secret",
     ),
     dict(
@@ -277,7 +254,6 @@ TOKEN_PATTERNS = [
             r"(?i)\b(?:x-api-key|x-auth-token|x-access-token|api-key)\s*:\s*"
             r"['\"]?(?P<secret>[A-Za-z0-9_\-./+=]{16,})['\"]?"
         ),
-        confidence=0.6,
         group="secret",
     ),
 ]
@@ -319,7 +295,6 @@ def _scan_text(text: str, message_index: int) -> list:
                 "message_index": message_index,
                 "is_violation": True,
                 "violation_message": f"[{pattern['label']}] Matched: {masked_value}",
-                "confidence_score": pattern["confidence"],
                 "start": redact_start,
                 "end": redact_end,
             })
