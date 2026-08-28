@@ -37,6 +37,19 @@ def scan(*messages):
     return namespace["output"]
 
 
+def scan_raw(raw):
+    """Run the guardrail with `input` bound to exactly `raw`, to test envelopes."""
+    namespace = {"input": raw}
+    exec(_CODE, namespace)
+    return namespace["output"]
+
+
+def constant(name):
+    namespace = {"input": []}
+    exec(_CODE, namespace)
+    return namespace[name]
+
+
 def rules(violations):
     """The rule names that fired, in output order."""
     names = []
@@ -323,6 +336,240 @@ def test_malformed_items_are_skipped():
 def test_no_violations_means_empty_output():
     assert scan("perfectly ordinary text") == []
     assert scan() == []
+
+
+# ---------------------------------------------------------------------------
+# Input envelope. Iterating `input` directly failed the wrong way: a dict
+# envelope yielded its KEYS, so nothing was scanned and nothing was reported.
+# ---------------------------------------------------------------------------
+
+SECRET = "ghp_" + "a" * 36
+MESSAGE = {"content_type": "text", "value": SECRET}
+
+
+def test_envelope_shapes_are_unwrapped():
+    for label, raw in [
+        ("list", [MESSAGE]),
+        ("tuple", (MESSAGE,)),
+        ("generator", iter([MESSAGE])),
+        ("{'messages': [...]}", {"messages": [MESSAGE]}),
+        ("{'items': [...]}", {"items": [MESSAGE]}),
+        ("{'data': [...]}", {"data": [MESSAGE]}),
+        ("a single message dict", MESSAGE),
+    ]:
+        found = scan_raw(raw)
+        assert len(found) == 1, f"{label} -> {rules(found)}"
+
+
+def test_unrecognised_input_raises_rather_than_passing_silently():
+    """A content filter that reports nothing because it read nothing is worse
+    than one that errors, so the fallback raises and names the shape it got."""
+    for raw in (None, "a bare string", 42, {"unexpected": "envelope"}, input):
+        try:
+            scan_raw(raw)
+        except TypeError as exc:
+            assert "expected `input`" in str(exc), exc
+            assert type(raw).__name__ in str(exc), exc
+        else:
+            assert False, f"{type(raw).__name__} was accepted and scanned nothing"
+
+
+def test_missing_input_names_the_real_problem():
+    """With `input` never injected the name still resolves -- to the builtin --
+    so the old loop raised a TypeError that read like a platform fault."""
+    try:
+        exec(_CODE, {})
+    except TypeError as exc:
+        assert "expected `input`" in str(exc), exc
+    else:
+        assert False, "scanning with no `input` bound should raise"
+
+
+# ---------------------------------------------------------------------------
+# content_type tolerance. Requiring == "text" exactly turned a naming mismatch
+# into a silent pass.
+# ---------------------------------------------------------------------------
+
+def test_content_type_variants_are_still_scanned():
+    for item in (
+        {"content_type": "text", "value": SECRET},
+        {"content_type": "TEXT", "value": SECRET},
+        {"content_type": " Text ", "value": SECRET},
+        {"contentType": "text", "value": SECRET},
+        {"content_type": None, "value": SECRET},
+        {"value": SECRET},  # no content_type at all
+    ):
+        assert len(scan(item)) == 1, item
+
+
+def test_non_text_modalities_are_still_skipped():
+    for item in (
+        {"content_type": "image", "value": SECRET},
+        {"content_type": "IMAGE", "value": SECRET},
+        {"contentType": "audio", "value": SECRET},
+    ):
+        assert scan(item) == [], item
+
+
+# ---------------------------------------------------------------------------
+# PEM keys: the header alone is not the secret.
+# ---------------------------------------------------------------------------
+
+PEM_BODY = "\n".join(["MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7"] * 20)
+
+
+def test_pem_redaction_covers_the_key_body():
+    pem = "-----BEGIN RSA PRIVATE KEY-----\n" + PEM_BODY + "\n-----END RSA PRIVATE KEY-----"
+    text = "here you go:\n" + pem + "\nrotate it"
+    found = scan(text)
+    assert rules(found) == ["pem_private_key"], rules(found)
+    v = found[0]
+    assert v["value"][v["start"]:v["end"]] == pem
+    redacted = text[:v["start"]] + "[REDACTED]" + text[v["end"]:]
+    assert "MIIEvQ" not in redacted, "key body survived redaction"
+
+
+def test_pgp_block_redaction_covers_the_body():
+    block = ("-----BEGIN PGP PRIVATE KEY BLOCK-----\n" + PEM_BODY
+             + "\n-----END PGP PRIVATE KEY BLOCK-----")
+    v = scan(block)[0]
+    assert block[v["start"]:v["end"]] == block
+
+
+def test_truncated_pem_still_flags_the_header():
+    """No END line (a clipped paste) must still fire, or bounding the body
+    would have traded a partial redaction for no detection at all."""
+    for text in ("-----BEGIN PRIVATE KEY-----",
+                 "-----BEGIN PRIVATE KEY-----\n" + PEM_BODY):
+        assert rules(scan(text)) == ["pem_private_key"], text[:40]
+
+
+def test_pem_lookalikes_still_stay_quiet():
+    body = "-----BEGIN CERTIFICATE-----\n" + PEM_BODY + "\n-----END CERTIFICATE-----"
+    assert scan(body) == [], rules(scan(body))
+
+
+# ---------------------------------------------------------------------------
+# Output size. Each violation repeats the whole message in "value", so an
+# uncapped scan of a secret-dense paste amplifies its input ~250x.
+# ---------------------------------------------------------------------------
+
+def dense(n):
+    return "\n".join("SERVICE_%d_API_KEY=%s" % (i, "ghp_" + "%036d" % i) for i in range(n))
+
+
+def test_dense_input_collapses_to_one_covering_violation():
+    text = dense(500)
+    found = scan(text)
+    assert len(found) == 1, f"{len(found)} violations, expected a collapse"
+    v = found[0]
+    assert v["is_violation"] is True
+    assert v["violation_message"].startswith("[multiple_secrets] 500 secrets"), v["violation_message"]
+    redacted = text[:v["start"]] + "[REDACTED]" + text[v["end"]:]
+    assert "ghp_" not in redacted, "the collapsed span left a secret behind"
+
+
+def test_char_budget_collapses_below_the_count_cap():
+    """20 secrets is under MAX_VIOLATIONS_PER_MESSAGE, but 20 copies of a
+    120 KB message is not under the character budget."""
+    text = "x " * 60000 + " ".join("ghp_" + "%036d" % i for i in range(20))
+    found = scan(text)
+    assert len(found) == 1, len(found)
+    assert "multiple_secrets" in found[0]["violation_message"]
+
+
+def test_duplicated_text_stays_within_budget():
+    max_chars = constant("MAX_DUPLICATED_CHARS_PER_MESSAGE")
+    max_violations = constant("MAX_VIOLATIONS_PER_MESSAGE")
+    for n in (10, 60, 500, 4000):
+        text = dense(n)
+        found = scan(text)
+        assert len(found) == 1 or len(found) <= max_violations, (n, len(found))
+        duplicated = sum(len(v["value"]) for v in found)
+        # one full copy is unavoidable -- the contract requires it
+        assert duplicated <= max_chars + len(text), (n, duplicated)
+
+
+def test_sparse_secrets_in_a_large_message_are_still_itemised():
+    """The caps must not collapse ordinary messages: two secrets in 80 KB of
+    prose is well inside the budget and should redact precisely."""
+    filler = "x " * 20000
+    text = filler + "ghp_" + "a" * 36 + " " + filler + "npm_" + "b" * 36
+    assert rules(scan(text)) == ["github_pat_classic", "npm_token"], rules(scan(text))
+
+
+# ---------------------------------------------------------------------------
+# Offset semantics across string representations.
+# ---------------------------------------------------------------------------
+
+def utf16_window(text, start, end):
+    """What a host with UTF-16 strings cuts when it reads our integers as
+    UTF-16 unit offsets (.NET, Java, JavaScript)."""
+    units = text.encode("utf-16-le", "surrogatepass")
+    return units[start * 2:end * 2].decode("utf-16-le", "surrogatepass")
+
+
+def test_offsets_cover_the_secret_under_both_indexings():
+    for prefix in ("", "key: ", "\U0001f511 key: ", "\U0001f511\U0001f511\U0001f512 "):
+        text = prefix + SECRET + " -- rotate it"
+        v = scan(text)[0]
+        assert SECRET in text[v["start"]:v["end"]], (prefix, "code-point host")
+        assert SECRET in utf16_window(text, v["start"], v["end"]), (prefix, "utf-16 host")
+
+
+def test_widening_never_produces_overlapping_spans():
+    text = "\U0001f511\U0001f511 " + SECRET + " " + "npm_" + "b" * 36 + " tail"
+    found = scan(text)
+    assert len(found) == 2, rules(found)
+    assert found[0]["end"] <= found[1]["start"], [(v["start"], v["end"]) for v in found]
+
+
+def test_utf16_widening_is_clamped_at_end_of_message():
+    """Known, deliberate gap. `end` is never reported past len(value), because
+    an out-of-range offset risks the host rejecting the violation outright --
+    which would fail open. So a secret that ENDS the message, with astral
+    characters before it, is covered one UTF-16 unit short per astral
+    character. Pinned here so the tradeoff stays visible."""
+    text = "\U0001f511 " + SECRET  # secret runs to the end, one astral char before
+    v = scan(text)[0]
+    assert v["end"] == len(text)
+    assert SECRET in text[v["start"]:v["end"]], "code-point host is unaffected"
+    assert SECRET not in utf16_window(text, v["start"], v["end"])
+
+
+def test_non_ascii_that_is_not_astral_needs_no_widening():
+    for prefix in ("clé café: ", "鍵は: "):
+        text = prefix + SECRET
+        v = scan(text)[0]
+        assert text[v["start"]:v["end"]] == SECRET
+        assert utf16_window(text, v["start"], v["end"]) == SECRET
+
+
+# ---------------------------------------------------------------------------
+# Robustness: no input should raise out of the scan itself.
+# ---------------------------------------------------------------------------
+
+def test_odd_characters_do_not_raise():
+    for text in ("a\ud800b " + SECRET, "a\x00b " + SECRET, "﻿" + SECRET,
+                 "\U0001f511" * 50 + SECRET, "\r\n\t" + SECRET):
+        assert len(scan(text)) == 1, repr(text[:20])
+
+
+def test_no_pathological_backtracking():
+    import time
+    baits = [
+        "eyJ" + "A" * 40000,
+        "api_key=" + "A" * 40000 + "!",
+        "-----BEGIN PRIVATE KEY-----" + "A" * 40000,
+        ("-----BEGIN PRIVATE KEY-----" + "A" * 200) * 100,
+        "authorization: bearer " + "A" * 40000,
+        "http://a:b@x.com " * 4000,
+    ]
+    for text in baits:
+        started = time.perf_counter()
+        scan(text)
+        elapsed = time.perf_counter() - started
+        assert elapsed < 2.0, f"{elapsed:.2f}s on {text[:30]!r}"
 
 
 # ---------------------------------------------------------------------------

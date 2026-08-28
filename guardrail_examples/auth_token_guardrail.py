@@ -38,10 +38,38 @@ Output Structure (REDACT mode - REQUIRED FIELDS):
                 "end": 30                               # REQUIRED: End offset (exclusive)
             }
         ]
+
+Two properties of the output that the structure above does not state:
+
+  * start/end are Python CODE-POINT offsets, and `end` is widened where a
+    UTF-16 host would read them differently -- see _utf16_safe_end.
+  * violations are sorted by ascending `start`, and every offset is relative to
+    the ORIGINAL text. A host that applies them front-to-back with a
+    replacement of a different length will corrupt every offset after the
+    first; it must either work backwards or splice in one pass.
 """
 
+import bisect
 import ipaddress
 import re
+
+# ============================================================================
+# Output size caps
+#
+# Each violation must repeat the FULL message in "value" (start/end index into
+# it), so n violations on an m-char message cost n*m on the wire. Left
+# unbounded that amplifies its input by two orders of magnitude on exactly the
+# input people paste -- a .env file, `kubectl get secret -o yaml`, terraform
+# output. Measured before these caps: 500 keys in 30 KB of text produced 15 MB
+# of JSON; 8000 in 320 KB produced 2.5 GB.
+#
+# A message over either cap collapses to ONE violation spanning the first match
+# to the last. That over-redacts the filler between matches, which is the
+# deliberate trade: on secret-dense input the filler is cheap to lose and an
+# un-redacted key is not.
+# ============================================================================
+MAX_VIOLATIONS_PER_MESSAGE = 50
+MAX_DUPLICATED_CHARS_PER_MESSAGE = 1_000_000
 
 # ============================================================================
 # YOUR CUSTOM FILTER CODE HERE
@@ -216,10 +244,17 @@ TOKEN_PATTERNS = [
     dict(
         name="pem_private_key",
         # '-----BEGIN PRIVATE KEY-----', optionally typed
-        # (RSA/EC/DSA/OPENSSH/ENCRYPTED), or '-----BEGIN PGP PRIVATE KEY BLOCK-----'
+        # (RSA/EC/DSA/OPENSSH/ENCRYPTED), or '-----BEGIN PGP PRIVATE KEY BLOCK-----',
+        # THROUGH the matching END line. Matching the header alone leaves the
+        # base64 key body -- the actual secret -- in the text after redaction.
+        # The trailing block is optional so a truncated paste with no END line
+        # still flags, and its span is bounded so a BEGIN with no END costs a
+        # bounded scan rather than one to end-of-message.
         regex=re.compile(
             r"-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY-----"
+            r"(?:[\s\S]{0,32768}?-----END (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY-----)?"
             r"|-----BEGIN PGP PRIVATE KEY BLOCK-----"
+            r"(?:[\s\S]{0,32768}?-----END PGP PRIVATE KEY BLOCK-----)?"
         ),
     ),
 
@@ -266,53 +301,188 @@ def _mask_secret(value: str, edge: int = 4, mask: str = "****") -> str:
     return f"{value[:edge]}{mask}{value[-edge:]}"
 
 
-def _span_overlaps(start: int, end: int, claimed: list) -> bool:
-    return any(start < c_end and end > c_start for c_start, c_end in claimed)
+def _claim_span(start: int, end: int, claimed: list) -> bool:
+    """Claim [start, end) unless it overlaps a span already claimed.
+
+    `claimed` is kept sorted and, by construction, non-overlapping -- so only
+    the two neighbours either side of the insertion point can overlap. Scanning
+    every prior claim instead makes this O(matches^2), which is felt on the
+    secret-dense input the caps above exist for.
+    """
+    index = bisect.bisect_left(claimed, (start, end))
+    if index > 0 and claimed[index - 1][1] > start:
+        return False
+    if index < len(claimed) and end > claimed[index][0]:
+        return False
+    claimed.insert(index, (start, end))
+    return True
+
+
+# Astral characters: one code point to Python, a surrogate PAIR (two units) to
+# UTF-16. Everything else costs one unit in both.
+_ASTRAL = re.compile(r"[\U00010000-\U0010FFFF]")
+
+
+def _utf16_safe_end(end: int, astral_starts: list) -> int:
+    """Widen `end` so the span still covers the secret under UTF-16 indexing.
+
+    Our offsets count code points. A host whose strings are UTF-16 (.NET, Java,
+    JavaScript) reads the same integers as UTF-16 unit offsets, which run ahead
+    of code points by one per astral character seen so far -- so its window
+    lands short and leaves the tail of the secret in the text.
+
+    Pairing a code-point `start` with a UTF-16 `end` covers the secret under
+    both readings: a code-point host over-redacts a few trailing characters, a
+    UTF-16 host a few leading ones. With no astral characters in the text --
+    the overwhelmingly common case -- this returns `end` unchanged.
+
+    A UTF-8 BYTE-offset host is not covered: matching it would mean widening by
+    the encoded length of everything before the secret, which on CJK text means
+    redacting most of the message on every hit.
+
+    Callers clamp the result to len(text) (and to the next match), because an
+    offset past the end of the value risks the host rejecting the violation
+    outright -- failing open. So a secret that ENDS the message, with astral
+    characters before it, stays short by one unit per astral character on a
+    UTF-16 host. See test_utf16_widening_is_clamped_at_end_of_message.
+
+    `astral_starts` is the sorted offsets of every astral character in the
+    text, computed once per message: counting them per violation instead
+    re-scans the whole message on every hit.
+    """
+    return end + bisect.bisect_left(astral_starts, end)
+
+
+def _exceeds_output_budget(match_count: int, text_length: int) -> bool:
+    return (match_count > MAX_VIOLATIONS_PER_MESSAGE
+            or match_count * max(text_length, 1) > MAX_DUPLICATED_CHARS_PER_MESSAGE)
+
+
+def _collapsed_violation(text: str, message_index: int, matches: list,
+                         astral_starts: list) -> dict:
+    """One violation covering every match, for messages over the output caps."""
+    names = sorted({name for _, _, name in matches})
+    shown = ", ".join(names[:5]) + (", ..." if len(names) > 5 else "")
+    return {
+        "content_type": "text",
+        "value": text,
+        "message_index": message_index,
+        "is_violation": True,
+        "violation_message": (
+            f"[multiple_secrets] {len(matches)} secrets detected ({shown}); "
+            "collapsed to one span to bound the response size"
+        ),
+        "start": matches[0][0],
+        "end": min(_utf16_safe_end(max(end for _, end, _ in matches), astral_starts),
+                   len(text)),
+    }
 
 
 def _scan_text(text: str, message_index: int) -> list:
-    violations = []
-    claimed_spans = []  # spans already matched by a named pattern, to avoid double-counting
+    matches = []  # (start, end, rule name) for spans claimed by a named pattern
+    claimed = []  # the same spans, sorted, to avoid double-counting
 
     for pattern in TOKEN_PATTERNS:
         group = pattern.get("group", 0)
         validate = pattern.get("validate")
         for match in pattern["regex"].finditer(text):
-            if validate is not None and not validate(match):
-                continue
             try:
+                if validate is not None and not validate(match):
+                    continue
                 redact_start, redact_end = match.span(group)
-            except (IndexError, re.error):
+            except (IndexError, ValueError, re.error):
                 continue
-            if redact_start == -1 or _span_overlaps(redact_start, redact_end, claimed_spans):
+            if redact_start == -1 or not _claim_span(redact_start, redact_end, claimed):
                 continue
-            claimed_spans.append((redact_start, redact_end))
-            masked_value = _mask_secret(text[redact_start:redact_end])
-            violations.append({
-                "content_type": "text",
-                # The full message content, NOT just the matched secret -- start/end
-                # below are offsets into this string, so redaction slices it directly.
-                "value": text,
-                "message_index": message_index,
-                "is_violation": True,
-                "violation_message": f"[{pattern['name']}] Matched: {masked_value}",
-                "start": redact_start,
-                "end": redact_end,
-            })
+            matches.append((redact_start, redact_end, pattern["name"]))
 
-    violations.sort(key=lambda v: v["start"])
+    if not matches:
+        return []
+
+    matches.sort()
+    # Astral characters are absent from all but a sliver of real traffic, so
+    # skip the scan entirely rather than pay for it on every message.
+    astral_starts = ([m.start() for m in _ASTRAL.finditer(text)]
+                     if _ASTRAL.search(text) else [])
+
+    if _exceeds_output_budget(len(matches), len(text)):
+        return [_collapsed_violation(text, message_index, matches, astral_starts)]
+
+    violations = []
+    for index, (start, end, name) in enumerate(matches):
+        # Widening for UTF-16 hosts must stop short of the next match: spans
+        # that overlap each other are ambiguous for whoever applies them.
+        limit = matches[index + 1][0] if index + 1 < len(matches) else len(text)
+        violations.append({
+            "content_type": "text",
+            # The full message content, NOT just the matched secret -- start/end
+            # below are offsets into this string, so redaction slices it directly.
+            "value": text,
+            "message_index": message_index,
+            "is_violation": True,
+            "violation_message": f"[{name}] Matched: {_mask_secret(text[start:end])}",
+            "start": start,
+            "end": min(_utf16_safe_end(end, astral_starts), limit),
+        })
     return violations
 
 
+# Keys an envelope might carry the message list under, tried in order.
+_ENVELOPE_KEYS = ("messages", "input", "items", "contents", "data")
+
+
+def _as_message_list(raw) -> list:
+    """Coerce the host-injected `input` into a list of message dicts.
+
+    Iterating `input` directly fails the wrong way in two cases seen in
+    practice:
+
+      * `input` never injected. The name still resolves -- to the BUILTIN
+        `input` function -- so the loop raises "'builtin_function_or_method'
+        object is not iterable", which reads like a platform fault rather than
+        a contract mismatch.
+      * `input` handed over as an envelope, e.g. {"messages": [...]}. Iterating
+        a dict yields its KEYS, so every message is skipped and the guardrail
+        reports a clean bill of health for content it never read.
+
+    The second is the dangerous one, and the reason the fallback here raises
+    rather than returning []: a content filter that silently passes everything
+    is worse than one that errors.
+    """
+    if isinstance(raw, (list, tuple)):
+        return list(raw)
+    if isinstance(raw, dict):
+        if "value" in raw:  # a single message, not a collection of them
+            return [raw]
+        for key in _ENVELOPE_KEYS:
+            nested = raw.get(key)
+            if isinstance(nested, (list, tuple)):
+                return list(nested)
+    elif not isinstance(raw, (str, bytes, bytearray)) and hasattr(raw, "__iter__"):
+        return list(raw)  # generators and other one-shot iterables
+    raise TypeError(
+        "content guardrail: expected `input` to be a list of "
+        "{'content_type': ..., 'value': ...} messages, got "
+        f"{type(raw).__name__}. If the host wraps them in an envelope, add its "
+        "key to _ENVELOPE_KEYS."
+    )
+
+
 output = []
-for message_index, item in enumerate(input):
-    if not isinstance(item, dict) or item.get("content_type") != "text":
+for message_index, item in enumerate(_as_message_list(input)):
+    if not isinstance(item, dict):
+        continue
+
+    # Skip other modalities, but only where the host says so explicitly and in
+    # a form we recognise. Requiring content_type == "text" exactly meant a
+    # missing, differently-cased, or camelCased key ("TEXT", "contentType")
+    # skipped the message silently -- a naming mismatch turning into a pass.
+    content_type = item.get("content_type", item.get("contentType"))
+    if isinstance(content_type, str) and content_type.strip().lower() != "text":
         continue
 
     value = item.get("value", "")
     if not isinstance(value, str) or not value:
         continue
 
-    item_violations = _scan_text(value, message_index)
-    if item_violations:
-        output.extend(item_violations)
+    output.extend(_scan_text(value, message_index))
