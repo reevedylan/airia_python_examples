@@ -330,9 +330,13 @@ def _scan_text(text: str, message_index: int) -> list:
 
 output = []
 for message_index, item in enumerate(input):
-    if item.get("content_type") != "text":
+    if not isinstance(item, dict) or item.get("content_type") != "text":
         continue
 
-    item_violations = _scan_text(item.get("value", ""), message_index)
+    value = item.get("value", "")
+    if not isinstance(value, str) or not value:
+        continue
+
+    item_violations = _scan_text(value, message_index)
     if item_violations:
         output.extend(item_violations)
