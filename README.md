@@ -1,20 +1,27 @@
 # Airia Python Examples
 
-This repository contains a collection of Python examples showing how to use Airia's API.
+A collection of Python examples showing how to use Airia's API directly.
 
-## API Examples
-A collection of Python examples demonstrating direct usage of Airia's API.
+## Scripts
 
-- [`on_demand.py`](api_examples/on_demand.py) - Uploads a file for OnDemand Processing.
-- [`sync_data_source.py`](api_examples/sync_data_source.py) - Basic setup and simple API calls
-- [`file_upload_and_pipeline_execution.py`](api_examples/file_upload_and_pipeline_execution.py) - Uploads a file for use within an agent pipeline's execution.
-- [`custom_roles/`](api_examples/custom_roles/README.md) - List permissions, validate, and create custom roles. See the folder's README for the (undocumented) request/response shapes.
-- [`groups/`](api_examples/groups/README.md) - List, create, update, and delete groups. See the folder's README for the (undocumented) request/response shapes, including a PUT-replaces-not-merges gotcha.
-- [`role_group_sync/create_role_and_assign_group.py`](api_examples/role_group_sync/create_role_and_assign_group.py) - Creates a custom role and attaches it to an existing group, merging it into the group's current roles instead of clobbering them. Prototype for a future CI/CD (Okta SCIM sync) workflow.
+- [`on_demand.py`](api_examples/on_demand.py) — Upload a file for OnDemand processing
+- [`sync_data_source.py`](api_examples/sync_data_source.py) — Trigger a sync on an existing data source
+- [`agent_version_promote.py`](api_examples/agent_version_promote.py) — List an agent's pipeline versions and promote one to active
+- [`pipeline_execution_feed.py`](api_examples/pipeline_execution_feed.py) — Fetch a pipeline's most recent execution and print each step's output
 
-## Airia Team Repos
+## Collections
 
-Looking for more? Check out the rest of the team's repos!
+Related APIs grouped by subdomain.
 
-- [Alyssa's Repo](https://github.com/alyssagiuliano/airia_python_examples)
-- [Reesy's Repo](https://github.com/anthonygrees/airia_python_examples)
+- [`custom_roles/`](api_examples/custom_roles/README.md) — List permissions, validate, and create custom roles
+- [`groups/`](api_examples/groups/README.md) — List, create, update, and delete groups. Note that PUT replaces rather than merges.
+
+## Multi-step examples
+
+- [`role_group_sync/`](api_examples/role_group_sync/README.md) — Create a custom role and merge it into an existing group's roles without clobbering them.
+- [`file_upload_and_pipeline_execution.py`](api_examples/file_upload_and_pipeline_execution.py) — Upload a file and use it in an agent pipeline execution
+
+## Other repos
+
+- [Alyssa's repo](https://github.com/alyssagiuliano/airia_python_examples)
+- [Reesy's repo](https://github.com/anthonygrees/airia_python_examples)

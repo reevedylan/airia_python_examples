@@ -1,30 +1,61 @@
+"""
+Airia Agent Version Promoter
+
+How to use:
+1. Set your API key
+2. Update AGENT_ID below
+3. Run the script — it lists the agent's pipeline versions and marks the active one
+4. To promote a different version, set TARGET_VERSION_ID and run again
+"""
+
+import os
+
 import requests
 
-API_KEY  = "YOUR_API_KEY"
-AGENT_ID = "YOUR_AGENT_ID"
+# UPDATE THESE VALUES
+BASE_URL = "https://prodaus.api.airia.ai"
+API_KEY = os.environ.get("AIRIA_API_KEY", "ak-YOUR_API_KEY_HERE")
+AGENT_ID = "your-agent-id"
+TARGET_VERSION_ID = ""
 
-HEADERS = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
-BASE    = "https://prodaus.api.airia.ai"
+HEADERS = {
+    "accept": "application/json",
+    "content-type": "application/json",
+    "X-API-Key": API_KEY,
+}
 
 
 def list_versions():
-    r = requests.get(f"{BASE}/v1/PipelinesConfig/{AGENT_ID}", headers=HEADERS)
-    config = r.json()
-    for v in config["versions"]:
-        active = "<-- ACTIVE" if v.get("id") == config.get("activeVersionId") else ""
-        print(v.get("versionNumber"), v.get("id"), active)
-    return config
+    response = requests.get(f"{BASE_URL}/v1/PipelinesConfig/{AGENT_ID}", headers=HEADERS)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        print(f"Request failed ({response.status_code}): {response.text}")
+        raise
+    return response.json()
 
 
 def promote_version(config, target_version_id):
-    response = requests.put(f"{BASE}/v1/PipelinesConfig/{AGENT_ID}", headers=HEADERS, json={
+    payload = {
         "id": AGENT_ID,
         "activeVersionId": target_version_id,
-        "projectId": config["projectId"]
-    })
-    print("Status:", response.status_code)
-    print("Body:", response.text[:300])
+        "projectId": config["projectId"],
+    }
+    response = requests.put(f"{BASE_URL}/v1/PipelinesConfig/{AGENT_ID}", headers=HEADERS, json=payload)
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        print(f"Request failed ({response.status_code}): {response.text}")
+        raise
+    return response.json()
 
 
+# EXECUTION
 config = list_versions()
-# promote_version(config, "PASTE_UUID_HERE")
+for version in config["versions"]:
+    active = "<-- ACTIVE" if version.get("id") == config.get("activeVersionId") else ""
+    print(version.get("versionNumber"), version.get("id"), active)
+
+if TARGET_VERSION_ID:
+    result = promote_version(config, TARGET_VERSION_ID)
+    print(f"Promoted version: {result}")

@@ -7,29 +7,51 @@ How to use:
 3. Run the script — it fetches the most recent execution and prints each step's output
 """
 
+import os
+
 import requests
 
 # UPDATE THESE VALUES
-API_KEY = "ak-YOUR_API_KEY_HERE"
+BASE_URL = "https://prodaus.api.airia.ai"
+API_KEY = os.environ.get("AIRIA_API_KEY", "ak-YOUR_API_KEY_HERE")
 PIPELINE_ID = "your-pipeline-id"
 
-HEADERS = {"X-API-Key": API_KEY}
+HEADERS = {
+    "accept": "application/json",
+    "X-API-Key": API_KEY,
+}
 
 
 def get_execution_ids():
     response = requests.get(
-        "https://prodaus.api.airia.ai/v1/Feed/pipelines",
-        params={"pageNumber": 1, "pageSize": 50, "sortBy": "createdAt", "sortDirection": "DESC", "pipelineId": PIPELINE_ID},
-        headers=HEADERS
+        f"{BASE_URL}/v1/Feed/pipelines",
+        params={
+            "pageNumber": 1,
+            "pageSize": 50,
+            "sortBy": "createdAt",
+            "sortDirection": "DESC",
+            "pipelineId": PIPELINE_ID,
+        },
+        headers=HEADERS,
     )
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        print(f"Request failed ({response.status_code}): {response.text}")
+        raise
     return response.json()["items"]
 
 
 def get_feed(execution_id):
     response = requests.get(
-        f"https://prodaus.api.airia.ai/v1/Feed/pipelines/{execution_id}",
-        headers=HEADERS
+        f"{BASE_URL}/v1/Feed/pipelines/{execution_id}",
+        headers=HEADERS,
     )
+    try:
+        response.raise_for_status()
+    except requests.HTTPError:
+        print(f"Request failed ({response.status_code}): {response.text}")
+        raise
     return response.json()
 
 
