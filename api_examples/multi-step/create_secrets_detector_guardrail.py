@@ -124,7 +124,7 @@ def create_guardrail():
                             {
                                 "name": "jwt",
                                 "score": 0.9,
-                                "regexPattern": r"\b(?-i:eyJ[A-Za-z0-9_\-]{20,}\.eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,})\b",
+                                "regexPattern": r"\b(?-i:eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{0,})(?![A-Za-z0-9_\-])",
                             },
                             {
                                 "name": "pem_private_key",
