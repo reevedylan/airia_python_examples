@@ -9,14 +9,16 @@ is the canonical template — when unsure, match it.
    "How to use:" list (set API key → update the config constants → run, with a one-line
    description of what running it does).
 2. **Imports** — stdlib first (`os`, and `sys` only if actually needed), then third-party
-   (`requests`). No other dependencies.
-3. **`# UPDATE THESE VALUES` section** — module-level constants, in this order:
+   (`requests`, `dotenv`). Any new third-party dependency must be added to `requirements.txt`.
+3. **`load_dotenv()`** — call it right after the imports, before any constants are read, so
+   `AIRIA_API_KEY` can come from a `.env` file in the repo root instead of a shell export.
+4. **`# UPDATE THESE VALUES` section** — module-level constants, in this order:
    `BASE_URL`, then `API_KEY = os.environ.get("AIRIA_API_KEY", "ak-YOUR_API_KEY_HERE")`,
    then the script-specific inputs (ids, names, payload fields) using obvious placeholder
    values like `"your-group-id"`.
-4. **`HEADERS` dict** — `accept: application/json`, `content-type: application/json` (omit
+5. **`HEADERS` dict** — `accept: application/json`, `content-type: application/json` (omit
    `content-type` for GET/DELETE requests with no body), `X-API-Key`.
-5. **One function per API call**, lower_snake_case and verb-first (`create_group`,
+6. **One function per API call**, lower_snake_case and verb-first (`create_group`,
    `find_group_by_name`), taking no arguments — read the module-level constants directly.
    Build any `payload` dict inside the function, make the request, then:
    ```python
@@ -29,7 +31,7 @@ is the canonical template — when unsure, match it.
    ```
    For multi-step scripts, factor this into a shared `_raise_with_body(response)` helper
    instead of repeating it per function (see `role_group_sync/`).
-6. **`# EXECUTION` section** at the bottom — plain module-level code (not
+7. **`# EXECUTION` section** at the bottom — plain module-level code (not
    `if __name__ == "__main__"`) that calls the function(s) in order and prints the result.
 
 ## Other conventions

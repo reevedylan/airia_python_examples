@@ -2,6 +2,14 @@
 
 A collection of Python examples showing how to use Airia's API directly.
 
+## Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+Put your API key in a `.env` file in the repo root (`AIRIA_API_KEY=ak-...`) — each script loads it automatically via `python-dotenv`.
+
 ## Scripts
 
 - [`on_demand.py`](api_examples/on_demand.py) — Upload a file for OnDemand processing
