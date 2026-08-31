@@ -24,7 +24,6 @@ PERMISSIONS = [
     "settings:permission:read",
     "studio:project:read",
     "settings:workspace:read",
-    "common:agent:execute",
 ]
 
 HEADERS = {
