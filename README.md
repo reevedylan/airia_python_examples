@@ -12,11 +12,6 @@ A collection of Python examples demonstrating direct usage of Airia's API.
 - [`groups/`](api_examples/groups/README.md) - List, create, update, and delete groups. See the folder's README for the (undocumented) request/response shapes, including a PUT-replaces-not-merges gotcha.
 - [`role_group_sync/create_role_and_assign_group.py`](api_examples/role_group_sync/create_role_and_assign_group.py) - Creates a custom role and attaches it to an existing group, merging it into the group's current roles instead of clobbering them. Prototype for a future CI/CD (Okta SCIM sync) workflow.
 
-## Utilities
-A collection of useful Python scripts for common tasks.
-
-- [`md_to_pdf.py`](utilities/md_to_pdf.py) - Converts a Markdown file to a PDF.
-
 ## Airia Team Repos
 
 Looking for more? Check out the rest of the team's repos!
