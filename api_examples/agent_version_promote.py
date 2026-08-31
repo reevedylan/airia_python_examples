@@ -9,8 +9,10 @@ How to use:
 """
 
 import os
-
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # UPDATE THESE VALUES
 BASE_URL = "https://prodaus.api.airia.ai"

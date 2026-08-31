@@ -10,8 +10,10 @@ Useful for building the PERMISSIONS list passed to create_role.py.
 """
 
 import os
-
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # UPDATE THESE VALUES
 BASE_URL = "https://prodaus.api.airia.ai"

@@ -9,22 +9,14 @@ How to use:
    role, finds the target group by name, merges the new role into that
    group's *existing* roles (leaving its users/projects untouched), and PUTs
    the update.
-
-Two undocumented API quirks this script exists to handle (details in
-api_examples/custom_roles/README.md and api_examples/groups/README.md):
-- GET /v1/Groups[/{id}] nests roles/users as objects (`rolesList[].id`,
-  `users[].id`), but PUT /v1/Groups/{id} takes flat id arrays (`roleIds`,
-  `userIds`) instead.
-- PUT /v1/Groups/{id} REPLACES roleIds/userIds/projectIds — it does not
-  merge. That's why this script fetches the group's current membership and
-  merges the new role id in before PUTting, rather than PUTting ROLE_IDS
-  alone.
 """
 
 import os
 import sys
-
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # UPDATE THESE VALUES
 BASE_URL = "https://prodaus.api.airia.ai"
@@ -38,7 +30,7 @@ PERMISSIONS = [
     "studio:project:read",
     "settings:workspace:read",
 ]
-GROUP_NAME = "your-group-name"
+GROUP_NAME = "your-existing-group-name"
 
 HEADERS = {
     "accept": "application/json",

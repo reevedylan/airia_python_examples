@@ -10,8 +10,10 @@ The resulting role's id can then be added to a group's roleIds (see api_examples
 """
 
 import os
-
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # UPDATE THESE VALUES
 BASE_URL = "https://prodaus.api.airia.ai"
