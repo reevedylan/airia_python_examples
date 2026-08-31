@@ -26,8 +26,9 @@ Related APIs grouped by subdomain.
 
 ## Multi-step examples
 
-- [`role_group_sync/`](api_examples/role_group_sync/create_role_and_assign_group.py) — Create a custom role and merge it into an existing group's roles without clobbering them.
-- [`file_upload_and_pipeline_execution.py`](api_examples/file_upload_and_pipeline_execution.py) — Upload a file and use it in an agent pipeline execution
+- [`create_role_and_assign_group.py`](api_examples/multi-step/create_role_and_assign_group.py) — Create a custom role and merge it into an existing group's roles without clobbering them.
+- [`create_secrets_detector_guardrail.py`](api_examples/multi-step/create_secrets_detector_guardrail.py) — Create a custom-detector guardrail for regex-based secrets/credential detection
+- [`file_upload_and_pipeline_execution.py`](api_examples/multi-step/file_upload_and_pipeline_execution.py) — Upload a file and use it in an agent pipeline execution
 
 ## Other repos
 
